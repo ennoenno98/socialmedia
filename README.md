@@ -103,9 +103,11 @@ sortable table). Surfaces where Paid Social converts vs Paid Search / Cross-netw
 rate; Windsor `instagram` connector), paid boosted-post creatives (per-post
 spend / CTR / eCPM / attributed outcome — the influencer/creative proxy), and
 **per-creator promo-code attribution** (Shopify discount codes → creator):
-orders, new-customer %, revenue, real discount cost, modelled creator fee, ROAS
-and CAC per creator, with promo/auto-loyalty codes rolled up for context. Code-
-based attribution is flagged as a floor (under-credits view-through lift).
+orders, new-customer %, revenue, real discount cost, **fixed creator fee**
+(flat fee per creator, editable per row in-app — creators are paid a fixed fee,
+not a commission), ROAS and CAC per creator, with promo/auto-loyalty codes
+rolled up for context. Code-based attribution is flagged as a floor
+(under-credits view-through lift).
 
 ---
 

@@ -33,9 +33,15 @@ DEFAULT_REPEAT_WINDOW_DAYS = 90    # repeat-rate window (first-order cohort)
 DEFAULT_SUBSCRIPTION_TAKE_RATE = 18.0  # % of first orders on Subscribe & Save
 
 # --- Influencer / promo-code attribution ---------------------------------------
-# Commission paid to creators, modelled as % of their code's attributed revenue
-# (PLACEHOLDER — replace per-creator in INFLUENCER_ROSTER when you have real deals).
-DEFAULT_INFLUENCER_COMMISSION_PCT = 15.0
+# Creators are paid a FIXED FEE per creator (per campaign/period), not a
+# commission. This is the default flat fee applied to each creator until you set
+# the real per-creator amount (editable in the Instagram tab, or seed known
+# values in CREATOR_FIXED_FEES). PLACEHOLDER — replace with your actual rate card.
+DEFAULT_CREATOR_FIXED_FEE = 150.0
+
+# Optional per-creator fixed fee overrides (code -> fee in reporting currency).
+# Anything not listed uses DEFAULT_CREATOR_FIXED_FEE.
+CREATOR_FIXED_FEES: dict[str, float] = {}
 
 # Roster maps a Shopify discount code -> creator display name. Extend as you
 # onboard creators; codes not listed are auto-classified (see classify_code).
