@@ -91,6 +91,16 @@ and a **MER-lift incrementality proxy** vs a user-set baseline window.
 **★ Source / creative breakdown** — the headline cut: **CAC payback and repeat
 rate by source/creative**, sortable.
 
+**◆ Channel split** — GA4 default channel grouping: sessions, ATC/CVR, revenue,
+revenue share and new-visitor share per channel (revenue-by-channel chart +
+sortable table). Surfaces where Paid Social converts vs Paid Search / Cross-network.
+
+**📸 Instagram** — organic per-account insights (reach, new followers, engagement
+rate; Windsor `instagram` connector), paid boosted-post creatives (per-post
+spend / CTR / eCPM / attributed outcome — the influencer/creative proxy), and a
+promo/affiliate **per-code per-influencer** section surfaced as not-connected
+with the intended schema (needs a GRIN/Awin/Shopify discount-code feed).
+
 ---
 
 ## Assumptions (sidebar — all editable placeholders)

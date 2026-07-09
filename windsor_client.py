@@ -61,6 +61,7 @@ class DataBundle:
     ga4_new_returning: pd.DataFrame
     shopify_daily: pd.DataFrame
     shopify_products: pd.DataFrame
+    instagram_accounts: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
     mode: str = "demo"
     currency: str = config.DEFAULT_CURRENCY
     timezone: str = config.DEFAULT_TIMEZONE
@@ -178,6 +179,54 @@ def fetch_ga4(date_from, date_to, api_key, dim="date"):
     return agg
 
 
+def fetch_instagram(date_from, date_to, api_key):
+    """Instagram organic per-account insights. Engagement metrics and reach live
+    in different Windsor tables (and `follower_count` is limited to ~30 days), so
+    we pull them separately and merge on account. Returns empty on any failure."""
+    def brand(acc):
+        return "wowtamins" if "wowtamins" in str(acc).lower() else "Vegavero"
+    try:
+        eng = windsor_get("instagram",
+                          ["account_name", "likes", "comments", "shares", "total_interactions"],
+                          date_from, date_to, api_key)
+        rch = windsor_get("instagram", ["account_name", "reach"], date_from, date_to, api_key)
+    except requests.HTTPError:
+        return pd.DataFrame()
+    if eng.empty:
+        return pd.DataFrame()
+    for c in ("likes", "comments", "shares", "total_interactions"):
+        eng[c] = pd.to_numeric(eng.get(c, 0), errors="coerce").fillna(0)
+    eng = eng.groupby("account_name", as_index=False).sum(numeric_only=True)
+    if not rch.empty:
+        rch["reach"] = pd.to_numeric(rch["reach"], errors="coerce").fillna(0)
+        rch = rch.groupby("account_name", as_index=False)["reach"].sum()
+        eng = eng.merge(rch, on="account_name", how="left")
+    else:
+        eng["reach"] = float("nan")
+    # new followers (best-effort; field caps at ~30 days)
+    try:
+        fol = windsor_get("instagram", ["account_name", "follower_count"],
+                          _clamp_30d(date_from, date_to), date_to, api_key)
+        if not fol.empty:
+            fol = fol.groupby("account_name", as_index=False)["follower_count"].sum()
+            eng = eng.merge(fol, on="account_name", how="left")
+    except requests.HTTPError:
+        pass
+    eng = eng.rename(columns={"account_name": "account", "follower_count": "new_followers"})
+    eng["brand"] = eng["account"].map(brand)
+    return eng
+
+
+def _clamp_30d(date_from, date_to):
+    """follower_count only supports ~30 days; clamp the from-date accordingly."""
+    try:
+        d_from, d_to = pd.to_datetime(date_from), pd.to_datetime(date_to)
+        floor = d_to - pd.Timedelta(days=29)
+        return max(d_from, floor).date().isoformat()
+    except Exception:
+        return date_from
+
+
 def fetch_shopify(date_from, date_to, api_key):
     """Shopify sales. Windsor supports a `shopify` connector, but it is not
     connected on this account, so live pulls return empty and the caller falls
@@ -221,10 +270,12 @@ def _bundle_from_snapshot(date_from: str, date_to: str) -> DataBundle:
     sh_daily = sh_daily[(sh_daily["date"] >= df_from) & (sh_daily["date"] <= df_to)]
 
     sh_prod = pd.DataFrame(snap["shopify_products"])
+    ig = pd.DataFrame(snap.get("instagram_accounts", []))
 
     b = DataBundle(
         ads_daily=ads, ads_campaigns=camp, ga4_daily=g_daily, ga4_channel=g_channel,
         ga4_new_returning=g_nr, shopify_daily=sh_daily, shopify_products=sh_prod,
+        instagram_accounts=ig,
         mode="demo", currency=snap["meta"]["currency"], timezone=snap["meta"]["timezone"],
         connector_status=snap["meta"]["connectors_status"],
     )
@@ -262,6 +313,7 @@ def load_data(date_from: str, date_to: str, live: bool) -> DataBundle:
         g_channel = fetch_ga4(date_from, date_to, api_key, "default_channel_group")
         g_nr = fetch_ga4(date_from, date_to, api_key, "new_vs_returning")
         shop = fetch_shopify(date_from, date_to, api_key)
+        ig = fetch_instagram(date_from, date_to, api_key)
     except requests.RequestException as exc:
         b = _bundle_from_snapshot(date_from, date_to)
         b.note(f"Live Windsor request failed ({exc}); fell back to demo snapshot.")
@@ -296,6 +348,7 @@ def load_data(date_from: str, date_to: str, live: bool) -> DataBundle:
         ads_daily=meta, ads_campaigns=camp, ga4_daily=g_daily, ga4_channel=g_channel,
         ga4_new_returning=g_nr, shopify_daily=shop_daily,
         shopify_products=pd.DataFrame(columns=["product", "total_sales", "items", "orders"]),
+        instagram_accounts=ig,
         mode="live", currency=config.DEFAULT_CURRENCY, timezone=config.DEFAULT_TIMEZONE,
         connector_status=status,
     )

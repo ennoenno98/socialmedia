@@ -151,6 +151,24 @@ def build_shopify_products():
             for p, ts, items, orders in _load("shopify_products.json")]
 
 
+def build_instagram_accounts():
+    """Instagram organic per-account insights (Windsor `instagram` connector).
+    Engagement + reach are 90-day totals; new_followers is 30-day (the field's
+    max window). No GRIN/Awin/promo-code connector, so there is no per-influencer
+    or per-code cut — this is the account/creative-level organic signal."""
+    return [
+        {"account": "vegavero.de", "brand": "Vegavero", "reach": 607225,
+         "new_followers": 1008, "likes": 3071, "comments": 153, "shares": 369,
+         "total_interactions": 4888},
+        {"account": "wowtamins.de", "brand": "wowtamins", "reach": 1208280,
+         "new_followers": 495, "likes": 7014, "comments": 554, "shares": 455,
+         "total_interactions": 9991},
+        {"account": "vegavero.italia", "brand": "Vegavero", "reach": 327325,
+         "new_followers": 953, "likes": 12207, "comments": 214, "shares": 1133,
+         "total_interactions": 25282},
+    ]
+
+
 def main():
     snapshot = {
         "meta": {
@@ -176,6 +194,7 @@ def main():
         "ga4_new_returning": build_ga4_new_returning(),
         "shopify_daily": build_shopify_daily(),
         "shopify_products": build_shopify_products(),
+        "instagram_accounts": build_instagram_accounts(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:

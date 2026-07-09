@@ -201,6 +201,22 @@ def chart_mer(ts):
     )
 
 
+def chart_channel(cb, currency):
+    if cb.empty:
+        return None
+    return (
+        alt.Chart(cb).mark_bar(color=C_BLUE, cornerRadiusEnd=4, size=18)
+        .encode(
+            x=alt.X("revenue:Q", title=f"Revenue ({currency})", axis=alt.Axis(format="~s")),
+            y=alt.Y("channel:N", sort="-x", title=None),
+            tooltip=[alt.Tooltip("channel:N", title="Channel"),
+                     alt.Tooltip("revenue:Q", format=",.0f"),
+                     alt.Tooltip("sessions:Q", format=",.0f"),
+                     alt.Tooltip("cvr:Q", format=".2%")],
+        ).properties(height=360)
+    )
+
+
 def chart_funnel(f):
     steps = pd.DataFrame({
         "Step": ["Sessions", "Add to cart", "Checkout", "Purchase"],
@@ -298,7 +314,8 @@ def main():
     # -- section tabs ---------------------------------------------------------
     tabs = st.tabs(["① Efficiency / Spend", "② Funnel / Conversion",
                     "③ Retention / Quality", "④ Influencer",
-                    "★ Source / creative breakdown"])
+                    "★ Source / creative breakdown", "◆ Channel split",
+                    "📸 Instagram"])
 
     # ---- Efficiency ----
     with tabs[0]:
@@ -464,8 +481,112 @@ def main():
                        "available. `CAC` uses platform-attributed orders; `CAC payback` uses "
                        "the sidebar unit-economics assumptions.")
 
+    # ---- Channel split ----
+    with tabs[5]:
+        st.markdown("**Channel split** — GA4 default channel grouping.")
+        cb = metrics.channel_breakdown(bundle)
+        if cb.empty:
+            st.info("GA4 channel data unavailable.")
+        else:
+            st.caption("Reflects the GA4 pull window (~30 days), independent of the "
+                       "selected range. Revenue is GA4-attributed, so it differs from "
+                       "Shopify store revenue (last-touch vs booked).")
+            left, right = st.columns([2, 3])
+            with left:
+                tot_sessions = cb["sessions"].sum()
+                tot_rev = cb["revenue"].sum()
+                top = cb.iloc[0]
+                m = st.columns(2)
+                m[0].metric("Channels", num(len(cb)))
+                m[1].metric("Top channel by revenue", str(top["channel"]))
+                m2 = st.columns(2)
+                m2[0].metric("Sessions (all channels)", num(tot_sessions))
+                m2[1].metric("GA4 revenue", money(tot_rev, currency))
+            with right:
+                st.altair_chart(chart_channel(cb, currency), width="stretch")
+            show = cb[["channel", "sessions", "atc_rate", "cvr", "transactions",
+                       "revenue", "rev_share", "new_share"]].copy()
+            st.dataframe(
+                show, width="stretch", hide_index=True,
+                column_config={
+                    "channel": "Channel",
+                    "sessions": st.column_config.NumberColumn("Sessions", format="%.0f"),
+                    "atc_rate": st.column_config.NumberColumn("ATC rate", format="%.2f%%"),
+                    "cvr": st.column_config.NumberColumn("CVR", format="%.2f%%"),
+                    "transactions": st.column_config.NumberColumn("Orders", format="%.0f"),
+                    "revenue": st.column_config.NumberColumn("Revenue", format="%.0f"),
+                    "rev_share": st.column_config.NumberColumn("Rev share", format="%.1f%%"),
+                    "new_share": st.column_config.NumberColumn("New-visitor share", format="%.1f%%"),
+                })
+            st.caption("`ATC rate`, `CVR`, `rev share`, `new-visitor share` are fractions "
+                       "rendered as %. Paid Social converts far below Cross-network / Paid "
+                       "Search here — a creative/landing-page signal, not just spend.")
+
+    # ---- Instagram ----
+    with tabs[6]:
+        st.markdown("**Instagram insights** — organic account health, paid creative "
+                    "performance, and promo/affiliate attribution.")
+        st.caption("No GRIN/Awin/promo-code connector on this account, so there is no "
+                   "true per-influencer or per-code cut. Shown: organic per-account "
+                   "insights (Windsor `instagram`) and paid boosted posts (the "
+                   "influencer/creative proxy).")
+
+        st.markdown("##### Organic account insights")
+        io = metrics.instagram_organic(bundle)
+        if io.empty:
+            st.info("Instagram organic data unavailable.")
+        else:
+            st.caption("Reach + engagement are 90-day totals; new followers is 30-day "
+                       "(the field's max window).")
+            show = io[["account", "brand", "reach", "new_followers", "likes", "comments",
+                       "shares", "total_interactions", "engagement_rate"]].copy()
+            st.dataframe(
+                show, width="stretch", hide_index=True,
+                column_config={
+                    "account": "Account", "brand": "Brand",
+                    "reach": st.column_config.NumberColumn("Reach (90d)", format="%.0f"),
+                    "new_followers": st.column_config.NumberColumn("New followers (30d)", format="%.0f"),
+                    "likes": st.column_config.NumberColumn("Likes", format="%.0f"),
+                    "comments": st.column_config.NumberColumn("Comments", format="%.0f"),
+                    "shares": st.column_config.NumberColumn("Shares", format="%.0f"),
+                    "total_interactions": st.column_config.NumberColumn("Interactions", format="%.0f"),
+                    "engagement_rate": st.column_config.NumberColumn("Eng. rate / reach", format="%.2f%%"),
+                })
+
+        st.markdown("##### Paid Instagram creatives (boosted posts)")
+        ic = metrics.instagram_creatives(bundle)
+        if ic.empty:
+            st.info("No boosted-post campaigns in the pull window.")
+        else:
+            st.caption("Per-post spend, delivery and attributed outcome. Boosted posts "
+                       "here optimise for traffic/engagement (high clicks, near-zero "
+                       "attributed purchases) — treat as upper-funnel creative tests.")
+            show = ic[["post", "brand", "spend", "impressions", "clicks", "ctr",
+                       "cpc", "cpm", "purchases", "revenue", "roas"]].copy()
+            st.dataframe(
+                show, width="stretch", hide_index=True, height=360,
+                column_config={
+                    "post": "Post / creative", "brand": "Brand",
+                    "spend": st.column_config.NumberColumn("Spend", format="%.0f"),
+                    "impressions": st.column_config.NumberColumn("Impr.", format="%.0f"),
+                    "clicks": st.column_config.NumberColumn("Clicks", format="%.0f"),
+                    "ctr": st.column_config.NumberColumn("CTR", format="%.2f%%"),
+                    "cpc": st.column_config.NumberColumn("CPC", format="%.2f"),
+                    "cpm": st.column_config.NumberColumn("eCPM", format="%.2f"),
+                    "purchases": st.column_config.NumberColumn("Orders", format="%.0f"),
+                    "revenue": st.column_config.NumberColumn("Attr. rev", format="%.0f"),
+                    "roas": st.column_config.NumberColumn("ROAS", format="%.2f"),
+                })
+
+        st.markdown("##### Promo / affiliate codes per influencer")
+        st.info("Not connected. The primary influencer signal — promo-code / affiliate-"
+                "link attributed orders and revenue per creator — needs a GRIN, Awin, or "
+                "Shopify discount-code feed. Wire it in `windsor_client.fetch_instagram` "
+                "(or a Shopify discount export) to populate a **code · influencer · "
+                "orders · revenue · new-customer % · discount cost** table here.")
+
     st.divider()
-    st.caption("Built on Windsor.ai (Meta, Google, TikTok, GA4) + Shopify. Assumptions are "
+    st.caption("Built on Windsor.ai (Meta, Google, TikTok, GA4, Instagram) + Shopify. Assumptions are "
                "editable in the sidebar and are not business truth. Data-access layer is "
                "swappable (windsor_client.py); KPI math is in metrics.py.")
 
