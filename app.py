@@ -149,10 +149,12 @@ def sidebar():
                                        config.DEFAULT_SUBSCRIPTION_TAKE_RATE, 0.5)
 
     st.sidebar.subheader("Influencer attribution")
-    commission = st.sidebar.number_input("Creator commission (% of attributed revenue)",
-                                         0.0, 50.0, config.DEFAULT_INFLUENCER_COMMISSION_PCT, 0.5,
-                                         help="Modelled fee on top of the discount given. "
-                                              "Replace with real per-creator deals when known.")
+    default_fee = st.sidebar.number_input("Fixed fee per creator (default, per period)",
+                                          0.0, 100000.0, config.DEFAULT_CREATOR_FIXED_FEE, 25.0,
+                                          help="Flat fee paid per creator for the selected "
+                                               "period (creators are paid a fixed fee, not a "
+                                               "commission). Override per creator in the "
+                                               "Instagram tab.")
 
     st.sidebar.subheader("Incrementality")
     use_baseline = st.sidebar.checkbox("Set MER baseline window", value=False)
@@ -168,7 +170,7 @@ def sidebar():
         shipping_per_order=shipping, avg_order_margin_pct=config.DEFAULT_AVG_ORDER_MARGIN_PCT,
         avg_ltv=ltv, ltv_window_months=ltv_win, payback_red_months=payback_red,
         repeat_window_days=repeat_win, subscription_take_rate=sub_take,
-        influencer_commission_pct=commission,
+        default_creator_fee=default_fee,
         mer_baseline_from=b_from, mer_baseline_to=b_to,
     )
     return live, currency, timezone, date_from, date_to, assumptions
@@ -532,11 +534,10 @@ def main():
     # ---- Instagram ----
     with tabs[6]:
         st.markdown("**Instagram insights** — organic account health, paid creative "
-                    "performance, and promo/affiliate attribution.")
-        st.caption("No GRIN/Awin/promo-code connector on this account, so there is no "
-                   "true per-influencer or per-code cut. Shown: organic per-account "
-                   "insights (Windsor `instagram`) and paid boosted posts (the "
-                   "influencer/creative proxy).")
+                    "performance, and per-creator promo-code attribution.")
+        st.caption("Organic per-account insights (Windsor `instagram`), paid boosted posts "
+                   "(the creative proxy), and per-creator attribution from Shopify discount "
+                   "codes. Creators are paid a fixed fee (editable below).")
 
         st.markdown("##### Organic account insights")
         io = metrics.instagram_organic(bundle)
@@ -586,29 +587,49 @@ def main():
                 })
 
         st.markdown("##### Promo-code attribution per influencer")
-        codes = metrics.influencer_code_attribution(bundle, a)
-        if codes.empty:
+        if bundle.influencer_codes.empty:
             st.info("No discount-code data. In demo mode this is bundled; in live mode "
                     "add `SHOPIFY_SHOP` + `SHOPIFY_ACCESS_TOKEN` to secrets so the Shopify "
                     "Admin API can supply per-code orders/revenue.")
         else:
+            # Creators are paid a FIXED FEE per creator (not a commission). Seed each
+            # from the sidebar default (or config overrides); editable per creator.
+            roster = bundle.influencer_codes
+            roster = roster[roster["category"] == "Influencer"][["influencer", "code"]].copy()
+            roster["fixed_fee"] = roster["code"].map(
+                lambda c: float(config.CREATOR_FIXED_FEES.get(c, a["default_creator_fee"])))
+            with st.expander("Fixed fee per creator (flat fee for the period — editable)"):
+                st.caption("Creators are paid a fixed fee, not a commission. Defaults to the "
+                           "sidebar value; edit a row to your real deal and the scorecard + "
+                           "table recompute.")
+                edited = st.data_editor(
+                    roster, hide_index=True, width="stretch", key="creator_fees",
+                    disabled=["influencer", "code"],
+                    column_config={
+                        "influencer": "Creator", "code": "Code",
+                        "fixed_fee": st.column_config.NumberColumn(
+                            f"Fixed fee ({currency})", min_value=0.0, step=25.0, format="%.0f"),
+                    })
+            fee_map = dict(zip(edited["code"], edited["fixed_fee"]))
+
+            codes = metrics.influencer_code_attribution(bundle, a, fee_map)
             summ = metrics.influencer_code_summary(codes)
             if summ.get("available"):
                 st.caption("Blended across influencer codes. Discount cost is real "
-                           "(Shopify); creator fee is modelled at the sidebar commission %.")
+                           "(Shopify); creator cost is the fixed fee per creator (above).")
                 sc = st.columns(6)
                 sc[0].metric("Creators", num(summ["creators"]))
                 sc[1].metric("Attributed revenue", compact_money(summ["revenue"], currency))
                 sc[2].metric("Orders", num(summ["orders"]))
                 sc[3].metric("Blended ROAS", ratio(summ["roas"]),
-                             help="Attributed revenue ÷ (discount + modelled creator fee).")
+                             help="Attributed revenue ÷ (discount + fixed creator fees).")
                 sc[4].metric("CAC / new cust.", money(summ["cac_new"], currency, 2))
                 sc[5].metric("New-customer share",
                              pct(summ["new_customers"] / summ["orders"] if summ["orders"] else float("nan")))
             infl = codes[codes["category"] == "Influencer"].copy()
-            st.caption("Per-creator table — sortable. `New %` and `returning` use "
-                       "customer order-count at query time (proxy). `Creator fee`, `CAC` "
-                       "and `ROAS` fold in the modelled commission; `discount` is real.")
+            st.caption("Per-creator table — sortable. `New %` uses customer order-count at "
+                       "query time (proxy). `Creator fee` is the fixed fee; `CAC` and `ROAS` "
+                       "fold in fee + discount; `discount` and revenue are real.")
             show = infl[["influencer", "code", "orders", "new_customers", "new_rate",
                          "total_sales", "aov", "discount", "discount_pct",
                          "creator_fee", "roas", "cac_new", "contribution"]].copy()

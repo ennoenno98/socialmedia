@@ -348,10 +348,11 @@ def instagram_creatives(bundle) -> pd.DataFrame:
     return inf.sort_values("impressions", ascending=False)
 
 
-def influencer_code_attribution(bundle, a: dict) -> pd.DataFrame:
+def influencer_code_attribution(bundle, a: dict, fee_map: dict | None = None) -> pd.DataFrame:
     """Per-discount-code attribution. Real facts from Shopify: orders, revenue,
-    discount cost, returning split. Modelled: creator fee (commission % of a
-    creator's attributed revenue) and the derived CAC/ROAS."""
+    discount cost, returning split. The creator cost is a FIXED FEE per creator
+    (fee_map[code], else the default flat fee) — not a commission. CAC/ROAS are
+    derived from discount + fixed fee."""
     df = bundle.influencer_codes
     if df.empty:
         return pd.DataFrame()
@@ -359,16 +360,18 @@ def influencer_code_attribution(bundle, a: dict) -> pd.DataFrame:
     for c in ("orders", "gross_sales", "discount", "net_sales", "total_sales",
               "returning_customers"):
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    comm = a.get("influencer_commission_pct", 0) / 100.0
+    fee_map = fee_map or {}
+    default_fee = float(a.get("default_creator_fee", 0.0))
     mp = margin_pct(a)
 
     df["new_customers"] = (df["orders"] - df["returning_customers"]).clip(lower=0)
     df["new_rate"] = df.apply(lambda r: _safe_div(r["new_customers"], r["orders"]), axis=1)
     df["aov"] = df.apply(lambda r: _safe_div(r["total_sales"], r["orders"]), axis=1)
     df["discount_pct"] = df.apply(lambda r: _safe_div(r["discount"], r["gross_sales"]), axis=1)
-    # creator fee only for influencer codes
+    # fixed fee per creator (only for influencer codes)
     df["creator_fee"] = df.apply(
-        lambda r: r["total_sales"] * comm if r["category"] == "Influencer" else 0.0, axis=1)
+        lambda r: float(fee_map.get(r["code"], default_fee)) if r["category"] == "Influencer" else 0.0,
+        axis=1)
     df["total_cost"] = df["discount"] + df["creator_fee"]
     df["roas"] = df.apply(lambda r: _safe_div(r["total_sales"], r["total_cost"]), axis=1)
     df["cac_new"] = df.apply(lambda r: _safe_div(r["total_cost"], r["new_customers"]), axis=1)
