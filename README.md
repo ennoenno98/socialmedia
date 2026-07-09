@@ -41,6 +41,7 @@ swapped (live ↔ snapshot ↔ warehouse) without touching the UI.
 |---|---|
 | `app.py` | Streamlit UI only — layout, controls, charts. No metric math. |
 | `windsor_client.py` | **Data-access layer.** One function per connector, all normalised to a common schema. Live Windsor API + graceful snapshot fallback. Cached with `st.cache_data(ttl=1h)`, cleared by the sidebar refresh button. |
+| `shopify_client.py` | **Shopify Admin API** access (direct, not via Windsor) for per-discount-code sales → influencer attribution. Empty frame when creds absent. |
 | `metrics.py` | Pure KPI functions over a `DataBundle` + assumptions. Unit-testable, no Streamlit. |
 | `config.py` | Placeholder assumption defaults + the cached Windsor **field map**. |
 | `build_snapshot.py` | Dev tool that normalises raw connector exports into `sample_data/snapshot.json` (provenance for the demo data). |
@@ -59,11 +60,14 @@ etc.); the client normalises them to one schema.
 > same connector slugs, field IDs, and date semantics. That is the deployable
 > equivalent of the MCP and the only live-data dependency.
 
-**Connected on this account:** Meta Ads, Google Ads, TikTok Ads, GA4.
-**Not connected:** Shopify (reached via the Shopify MCP for the snapshot; wire
-the Windsor `shopify` connector in `fetch_shopify` when available) and any
-influencer/affiliate source (GRIN/Awin/promo-code). The app **surfaces these
-gaps** rather than failing — see the caveats banner in-app.
+**Connected via Windsor:** Meta Ads, Google Ads, TikTok Ads, GA4, Instagram.
+**Shopify** is reached **directly via the Admin API** (`shopify_client.py`), not
+through Windsor — sales, orders, and per-discount-code attribution. At build time
+the snapshot was pulled via the Shopify MCP; the deployed app uses `SHOPIFY_SHOP`
++ `SHOPIFY_ACCESS_TOKEN`. Influencer attribution uses **per-creator Shopify
+discount codes** (real on this store); a dedicated affiliate platform
+(GRIN/Awin) is optional and not required. The app **surfaces any gaps** rather
+than failing — see the caveats banner in-app.
 
 ---
 
@@ -97,9 +101,11 @@ sortable table). Surfaces where Paid Social converts vs Paid Search / Cross-netw
 
 **📸 Instagram** — organic per-account insights (reach, new followers, engagement
 rate; Windsor `instagram` connector), paid boosted-post creatives (per-post
-spend / CTR / eCPM / attributed outcome — the influencer/creative proxy), and a
-promo/affiliate **per-code per-influencer** section surfaced as not-connected
-with the intended schema (needs a GRIN/Awin/Shopify discount-code feed).
+spend / CTR / eCPM / attributed outcome — the influencer/creative proxy), and
+**per-creator promo-code attribution** (Shopify discount codes → creator):
+orders, new-customer %, revenue, real discount cost, modelled creator fee, ROAS
+and CAC per creator, with promo/auto-loyalty codes rolled up for context. Code-
+based attribution is flagged as a floor (under-credits view-through lift).
 
 ---
 

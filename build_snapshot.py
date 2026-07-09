@@ -169,6 +169,28 @@ def build_instagram_accounts():
     ]
 
 
+def build_influencer_codes():
+    """Per-discount-code attribution from Shopify (ShopifyQL `sales` grouped by
+    discount_code, 90-day). Merges the sales aggregate with the returning-customer
+    split and classifies each code (influencer / promo / auto-loyalty)."""
+    import config
+    sales = _load("shopify_codes_sales.json")            # [code, orders, gross, disc, net, total]
+    ret = {r[0]: r[2] for r in _load("shopify_codes_returning.json")}  # code -> returning_customers
+    out = []
+    for code, orders, gross, disc, net, total in sales:
+        cat, name = config.classify_code(code)
+        if cat == "Uncoded":
+            continue
+        out.append({
+            "code": code, "category": cat, "influencer": name or "",
+            "orders": int(orders), "gross_sales": float(gross),
+            "discount": abs(float(disc)), "net_sales": float(net),
+            "total_sales": float(total),
+            "returning_customers": int(ret.get(code, 0)),
+        })
+    return out
+
+
 def main():
     snapshot = {
         "meta": {
@@ -195,6 +217,7 @@ def main():
         "shopify_daily": build_shopify_daily(),
         "shopify_products": build_shopify_products(),
         "instagram_accounts": build_instagram_accounts(),
+        "influencer_codes": build_influencer_codes(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:

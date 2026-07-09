@@ -348,6 +348,54 @@ def instagram_creatives(bundle) -> pd.DataFrame:
     return inf.sort_values("impressions", ascending=False)
 
 
+def influencer_code_attribution(bundle, a: dict) -> pd.DataFrame:
+    """Per-discount-code attribution. Real facts from Shopify: orders, revenue,
+    discount cost, returning split. Modelled: creator fee (commission % of a
+    creator's attributed revenue) and the derived CAC/ROAS."""
+    df = bundle.influencer_codes
+    if df.empty:
+        return pd.DataFrame()
+    df = df.copy()
+    for c in ("orders", "gross_sales", "discount", "net_sales", "total_sales",
+              "returning_customers"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+    comm = a.get("influencer_commission_pct", 0) / 100.0
+    mp = margin_pct(a)
+
+    df["new_customers"] = (df["orders"] - df["returning_customers"]).clip(lower=0)
+    df["new_rate"] = df.apply(lambda r: _safe_div(r["new_customers"], r["orders"]), axis=1)
+    df["aov"] = df.apply(lambda r: _safe_div(r["total_sales"], r["orders"]), axis=1)
+    df["discount_pct"] = df.apply(lambda r: _safe_div(r["discount"], r["gross_sales"]), axis=1)
+    # creator fee only for influencer codes
+    df["creator_fee"] = df.apply(
+        lambda r: r["total_sales"] * comm if r["category"] == "Influencer" else 0.0, axis=1)
+    df["total_cost"] = df["discount"] + df["creator_fee"]
+    df["roas"] = df.apply(lambda r: _safe_div(r["total_sales"], r["total_cost"]), axis=1)
+    df["cac_new"] = df.apply(lambda r: _safe_div(r["total_cost"], r["new_customers"]), axis=1)
+    df["contribution"] = df["net_sales"] * mp - df["creator_fee"]
+    return df.sort_values("total_sales", ascending=False)
+
+
+def influencer_code_summary(df: pd.DataFrame) -> dict:
+    """Blended totals across INFLUENCER codes only (for the scorecard row)."""
+    if df.empty:
+        return dict(available=False)
+    inf = df[df["category"] == "Influencer"]
+    if inf.empty:
+        return dict(available=False)
+    rev = float(inf["total_sales"].sum())
+    orders = float(inf["orders"].sum())
+    new = float(inf["new_customers"].sum())
+    cost = float(inf["total_cost"].sum())
+    return dict(
+        available=True, creators=int(inf["influencer"].nunique()),
+        orders=orders, revenue=rev, new_customers=new,
+        discount=float(inf["discount"].sum()), creator_fee=float(inf["creator_fee"].sum()),
+        cost=cost, roas=_safe_div(rev, cost), cac_new=_safe_div(cost, new),
+        contribution=float(inf["contribution"].sum()),
+    )
+
+
 # --------------------------------------------------------------------------- #
 #  Blended scorecard (scalars, for period-over-period deltas)
 # --------------------------------------------------------------------------- #

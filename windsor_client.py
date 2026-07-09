@@ -23,6 +23,7 @@ import requests
 import streamlit as st
 
 import config
+import shopify_client
 
 WINDSOR_BASE = "https://connectors.windsor.ai"
 SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), "sample_data", "snapshot.json")
@@ -62,6 +63,7 @@ class DataBundle:
     shopify_daily: pd.DataFrame
     shopify_products: pd.DataFrame
     instagram_accounts: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
+    influencer_codes: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
     mode: str = "demo"
     currency: str = config.DEFAULT_CURRENCY
     timezone: str = config.DEFAULT_TIMEZONE
@@ -271,11 +273,12 @@ def _bundle_from_snapshot(date_from: str, date_to: str) -> DataBundle:
 
     sh_prod = pd.DataFrame(snap["shopify_products"])
     ig = pd.DataFrame(snap.get("instagram_accounts", []))
+    codes = pd.DataFrame(snap.get("influencer_codes", []))
 
     b = DataBundle(
         ads_daily=ads, ads_campaigns=camp, ga4_daily=g_daily, ga4_channel=g_channel,
         ga4_new_returning=g_nr, shopify_daily=sh_daily, shopify_products=sh_prod,
-        instagram_accounts=ig,
+        instagram_accounts=ig, influencer_codes=codes,
         mode="demo", currency=snap["meta"]["currency"], timezone=snap["meta"]["timezone"],
         connector_status=snap["meta"]["connectors_status"],
     )
@@ -314,6 +317,7 @@ def load_data(date_from: str, date_to: str, live: bool) -> DataBundle:
         g_nr = fetch_ga4(date_from, date_to, api_key, "new_vs_returning")
         shop = fetch_shopify(date_from, date_to, api_key)
         ig = fetch_instagram(date_from, date_to, api_key)
+        codes = shopify_client.fetch_discount_code_sales(date_from, date_to)
     except requests.RequestException as exc:
         b = _bundle_from_snapshot(date_from, date_to)
         b.note(f"Live Windsor request failed ({exc}); fell back to demo snapshot.")
@@ -348,10 +352,14 @@ def load_data(date_from: str, date_to: str, live: bool) -> DataBundle:
         ads_daily=meta, ads_campaigns=camp, ga4_daily=g_daily, ga4_channel=g_channel,
         ga4_new_returning=g_nr, shopify_daily=shop_daily,
         shopify_products=pd.DataFrame(columns=["product", "total_sales", "items", "orders"]),
-        instagram_accounts=ig,
+        instagram_accounts=ig, influencer_codes=codes,
         mode="live", currency=config.DEFAULT_CURRENCY, timezone=config.DEFAULT_TIMEZONE,
         connector_status=status,
     )
+    if codes.empty:
+        b.note("Per-code influencer attribution needs Shopify Admin API creds "
+               "(SHOPIFY_SHOP + SHOPIFY_ACCESS_TOKEN in secrets); none found, so the "
+               "influencer-code table is empty in live mode.")
     for n in notes:
         b.note(n)
     return b

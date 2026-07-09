@@ -32,6 +32,66 @@ DEFAULT_PAYBACK_RED_MONTHS = 3.0   # flag CAC payback > this many months
 DEFAULT_REPEAT_WINDOW_DAYS = 90    # repeat-rate window (first-order cohort)
 DEFAULT_SUBSCRIPTION_TAKE_RATE = 18.0  # % of first orders on Subscribe & Save
 
+# --- Influencer / promo-code attribution ---------------------------------------
+# Commission paid to creators, modelled as % of their code's attributed revenue
+# (PLACEHOLDER — replace per-creator in INFLUENCER_ROSTER when you have real deals).
+DEFAULT_INFLUENCER_COMMISSION_PCT = 15.0
+
+# Roster maps a Shopify discount code -> creator display name. Extend as you
+# onboard creators; codes not listed are auto-classified (see classify_code).
+INFLUENCER_ROSTER = {
+    "ICHHASSEVEGANER": "@ichhasseveganer",
+    "LEONIE10": "Leonie",
+    "DISPENSAVEG10": "Dispensa Veg",
+    "ILARIA10": "Ilaria",
+    "MARIA10": "Maria",
+    "LOLA10": "Lola",
+    "LABDOMESTICO10": "Lab Domestico",
+    "SARADESIDERIA10": "Sara Desideria",
+    "IRINA10": "Irina",
+    "CLARA10": "Clara",
+    "HELLOFABIANA20": "Fabiana",
+    "CARLOTTA10": "Carlotta",
+    "SARA10": "Sara",
+    "NAWROT10": "Nawrot",
+    "ANNIKA10": "Annika",
+    "ANGIE": "Angie",
+    "NICOL10": "Nicol",
+    "EEFKE10": "Eefke",
+    "EVELYN10": "Evelyn",
+    "ANDREA10": "Andrea",
+    "FABIA10": "Fabia",
+}
+
+# Store-wide promo codes (NOT influencer). Everything auto-generated
+# (loyalty/gift) is detected by prefix in classify_code.
+PROMO_CODES = {
+    "VEGANCHECK10", "VEGANSPAREN10", "WELCOMEBACK20", "WELCOME15",
+    "MOM10", "APOLOGY", "NEWMORINGA",
+}
+
+
+def classify_code(code: str):
+    """Return (category, influencer_name) for a discount code.
+
+    category in {Influencer, Promo, Auto/Loyalty, Uncoded, Other}. Personal
+    name+number codes not yet in the roster are inferred as Influencer so new
+    creators show up before the roster is updated."""
+    import re
+    c = (code or "").strip()
+    if c == "" or c.lower() == "custom discount":
+        return "Uncoded", None
+    if c in INFLUENCER_ROSTER:
+        return "Influencer", INFLUENCER_ROSTER[c]
+    if c in PROMO_CODES:
+        return "Promo", None
+    if c.startswith("PURE") or c.startswith("10GIFT") or re.fullmatch(r"[A-Z0-9]{8}", c):
+        return "Auto/Loyalty", None
+    m = re.fullmatch(r"([A-Z][A-Za-z]+?)\d{1,2}", c)  # NAME + number -> inferred creator
+    if m:
+        return "Influencer", m.group(1).title()
+    return "Other", None
+
 # --- Incrementality ---
 # MER baseline window for the influencer incrementality proxy (ISO dates or None
 # to use the first 14 days of the selected range as the baseline).
