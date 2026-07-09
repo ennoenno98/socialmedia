@@ -296,6 +296,58 @@ def source_breakdown(bundle, a: dict) -> pd.DataFrame:
     return df
 
 
+def channel_breakdown(bundle) -> pd.DataFrame:
+    """GA4 default-channel-grouping split: sessions, funnel rates, revenue and
+    new-visitor share per channel. Reflects the GA4 pull window (~30 days)."""
+    c = bundle.ga4_channel
+    if c.empty:
+        return pd.DataFrame()
+    df = c.copy()
+    for col in ("sessions", "add_to_carts", "checkouts", "transactions", "revenue",
+                "newusers", "totalusers"):
+        if col in df:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    df = df[df["sessions"] > 0]
+    df["atc_rate"] = df.apply(lambda r: _safe_div(r["add_to_carts"], r["sessions"]), axis=1)
+    df["cvr"] = df.apply(lambda r: _safe_div(r["transactions"], r["sessions"]), axis=1)
+    df["rev_per_session"] = df.apply(lambda r: _safe_div(r["revenue"], r["sessions"]), axis=1)
+    df["new_share"] = df.apply(lambda r: _safe_div(r["newusers"], r["totalusers"]), axis=1)
+    df["rev_share"] = df["revenue"] / df["revenue"].sum() if df["revenue"].sum() else NA
+    return df.sort_values("revenue", ascending=False)
+
+
+def instagram_organic(bundle) -> pd.DataFrame:
+    """Instagram organic per-account insights with an engagement rate on reach."""
+    ig = bundle.instagram_accounts
+    if ig.empty:
+        return pd.DataFrame()
+    df = ig.copy()
+    for col in ("reach", "new_followers", "likes", "comments", "shares",
+                "total_interactions"):
+        if col in df:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["engagement_rate"] = df.apply(
+        lambda r: _safe_div(r.get("total_interactions"), r.get("reach")), axis=1)
+    return df.sort_values("total_interactions", ascending=False)
+
+
+def instagram_creatives(bundle) -> pd.DataFrame:
+    """Paid Instagram/boosted-post creatives (the influencer/creative proxy) with
+    delivery + efficiency + attributed outcome per post."""
+    c = bundle.ads_campaigns
+    if c.empty:
+        return pd.DataFrame()
+    inf = c[c["is_influencer"]].copy()
+    if inf.empty:
+        return inf
+    inf["post"] = inf["campaign"].str.replace(r"^Instagram post:\s*", "", regex=True).str.strip()
+    inf["ctr"] = inf.apply(lambda r: _safe_div(r["clicks"], r["impressions"]), axis=1)
+    inf["cpc"] = inf.apply(lambda r: _safe_div(r["spend"], r["clicks"]), axis=1)
+    inf["cpm"] = inf.apply(lambda r: _safe_div(r["spend"], r["impressions"]) * 1000, axis=1)
+    inf["roas"] = inf.apply(lambda r: _safe_div(r["revenue"], r["spend"]), axis=1)
+    return inf.sort_values("impressions", ascending=False)
+
+
 # --------------------------------------------------------------------------- #
 #  Blended scorecard (scalars, for period-over-period deltas)
 # --------------------------------------------------------------------------- #
