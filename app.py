@@ -148,6 +148,12 @@ def sidebar():
     sub_take = st.sidebar.number_input("Subscribe & Save take-rate (%)", 0.0, 100.0,
                                        config.DEFAULT_SUBSCRIPTION_TAKE_RATE, 0.5)
 
+    st.sidebar.subheader("Influencer attribution")
+    commission = st.sidebar.number_input("Creator commission (% of attributed revenue)",
+                                         0.0, 50.0, config.DEFAULT_INFLUENCER_COMMISSION_PCT, 0.5,
+                                         help="Modelled fee on top of the discount given. "
+                                              "Replace with real per-creator deals when known.")
+
     st.sidebar.subheader("Incrementality")
     use_baseline = st.sidebar.checkbox("Set MER baseline window", value=False)
     b_from = b_to = None
@@ -162,6 +168,7 @@ def sidebar():
         shipping_per_order=shipping, avg_order_margin_pct=config.DEFAULT_AVG_ORDER_MARGIN_PCT,
         avg_ltv=ltv, ltv_window_months=ltv_win, payback_red_months=payback_red,
         repeat_window_days=repeat_win, subscription_take_rate=sub_take,
+        influencer_commission_pct=commission,
         mer_baseline_from=b_from, mer_baseline_to=b_to,
     )
     return live, currency, timezone, date_from, date_to, assumptions
@@ -578,12 +585,68 @@ def main():
                     "roas": st.column_config.NumberColumn("ROAS", format="%.2f"),
                 })
 
-        st.markdown("##### Promo / affiliate codes per influencer")
-        st.info("Not connected. The primary influencer signal — promo-code / affiliate-"
-                "link attributed orders and revenue per creator — needs a GRIN, Awin, or "
-                "Shopify discount-code feed. Wire it in `windsor_client.fetch_instagram` "
-                "(or a Shopify discount export) to populate a **code · influencer · "
-                "orders · revenue · new-customer % · discount cost** table here.")
+        st.markdown("##### Promo-code attribution per influencer")
+        codes = metrics.influencer_code_attribution(bundle, a)
+        if codes.empty:
+            st.info("No discount-code data. In demo mode this is bundled; in live mode "
+                    "add `SHOPIFY_SHOP` + `SHOPIFY_ACCESS_TOKEN` to secrets so the Shopify "
+                    "Admin API can supply per-code orders/revenue.")
+        else:
+            summ = metrics.influencer_code_summary(codes)
+            if summ.get("available"):
+                st.caption("Blended across influencer codes. Discount cost is real "
+                           "(Shopify); creator fee is modelled at the sidebar commission %.")
+                sc = st.columns(6)
+                sc[0].metric("Creators", num(summ["creators"]))
+                sc[1].metric("Attributed revenue", compact_money(summ["revenue"], currency))
+                sc[2].metric("Orders", num(summ["orders"]))
+                sc[3].metric("Blended ROAS", ratio(summ["roas"]),
+                             help="Attributed revenue ÷ (discount + modelled creator fee).")
+                sc[4].metric("CAC / new cust.", money(summ["cac_new"], currency, 2))
+                sc[5].metric("New-customer share",
+                             pct(summ["new_customers"] / summ["orders"] if summ["orders"] else float("nan")))
+            infl = codes[codes["category"] == "Influencer"].copy()
+            st.caption("Per-creator table — sortable. `New %` and `returning` use "
+                       "customer order-count at query time (proxy). `Creator fee`, `CAC` "
+                       "and `ROAS` fold in the modelled commission; `discount` is real.")
+            show = infl[["influencer", "code", "orders", "new_customers", "new_rate",
+                         "total_sales", "aov", "discount", "discount_pct",
+                         "creator_fee", "roas", "cac_new", "contribution"]].copy()
+            st.dataframe(
+                show, width="stretch", hide_index=True, height=460,
+                column_config={
+                    "influencer": "Creator", "code": "Code",
+                    "orders": st.column_config.NumberColumn("Orders", format="%.0f"),
+                    "new_customers": st.column_config.NumberColumn("New cust.", format="%.0f"),
+                    "new_rate": st.column_config.NumberColumn("New %", format="%.0f%%"),
+                    "total_sales": st.column_config.NumberColumn("Revenue", format="%.0f"),
+                    "aov": st.column_config.NumberColumn("AOV", format="%.2f"),
+                    "discount": st.column_config.NumberColumn("Discount €", format="%.0f"),
+                    "discount_pct": st.column_config.NumberColumn("Disc %", format="%.1f%%"),
+                    "creator_fee": st.column_config.NumberColumn("Creator fee €", format="%.0f"),
+                    "roas": st.column_config.NumberColumn("ROAS", format="%.2f"),
+                    "cac_new": st.column_config.NumberColumn("CAC (new)", format="%.2f"),
+                    "contribution": st.column_config.NumberColumn("Contribution €", format="%.0f"),
+                })
+            other = codes[codes["category"] != "Influencer"]
+            if not other.empty:
+                by_cat = (other.groupby("category")
+                          .agg(codes=("code", "nunique"), orders=("orders", "sum"),
+                               revenue=("total_sales", "sum"), discount=("discount", "sum"))
+                          .reset_index())
+                with st.expander("Non-influencer codes (promo / auto-loyalty) for context"):
+                    st.dataframe(
+                        by_cat, width="stretch", hide_index=True,
+                        column_config={
+                            "category": "Category",
+                            "codes": st.column_config.NumberColumn("Codes", format="%.0f"),
+                            "orders": st.column_config.NumberColumn("Orders", format="%.0f"),
+                            "revenue": st.column_config.NumberColumn("Revenue", format="%.0f"),
+                            "discount": st.column_config.NumberColumn("Discount €", format="%.0f"),
+                        })
+            st.caption("⚠ Code-based attribution under-credits true lift (view-through, "
+                       "creators who drive branded search / direct) and can overlap paid "
+                       "social. Treat as a floor, not full incrementality.")
 
     st.divider()
     st.caption("Built on Windsor.ai (Meta, Google, TikTok, GA4, Instagram) + Shopify. Assumptions are "
